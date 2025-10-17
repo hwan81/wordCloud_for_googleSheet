@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Google Sheets 워드클라우드 생성기</title>
+  <style>
+    /* 전체 화면 모드 스타일 */
+    #wordcloud-section:fullscreen, #wordcloud-section:-webkit-full-screen, #wordcloud-section:-moz-full-screen {
+        background-color: #f7fafc;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: center;
+        padding: 1rem;
+        overflow-y: auto; /* 내용이 많을 경우 스크롤 */
+    }
+    
+    #wordcloud-container svg {
+        max-width: 95%; 
+        height: auto;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center p-4">
+
+  <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg mb-8">
+    <h1 class="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2">
+      Google 시트 데이터 분석기
+    </h1>
+
+    <div class="mb-6">
+      <label for="sheetUrl" class="block text-sm font-medium text-gray-700 mb-2">
+        Google Sheets URL 입력
+      </label>
+      <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..."
+             class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150"
+             required>
+      <p class="mt-1 text-sm text-red-500">
+        <b>필수</b>: 시트가 '링크가 있는 모든 사용자에게 보기' 권한으로 공유되어야 합니다.<br>
+        B1열은 제목으로 사용되며, B2 이하의 내용이 출력됩니다.
+      </p>
+    </div>
+
+    <button id="connectButton" onclick="startProcessing()"
+            class="w-full flex items-center justify-center bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-200 ease-in-out shadow-md focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
+      시트 연결 및 데이터 처리
+    </button>
+    
+    <div id="result" class="mt-4"></div>
+  </div>
+  
+  <div id="wordcloud-section" class="w-full max-w-6xl bg-white p-6 rounded-xl shadow-2xl transition-all duration-300">
+    <div class="relative text-center mb-4 border-b pb-2">
+      <h2 id="wordcloud-title" class="text-3xl font-bold text-gray-800">
+          데이터를 입력해 주세요.
+      </h2>
+      <div class="absolute top-0 right-0">
+        <button id="fullscreen-btn" onclick="toggleFullScreen()"
+                class="flex items-center space-x-2 bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-lg hover:bg-gray-300 transition duration-150 text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+            <svg id="fullscreen-icon-open" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m7-5v4m0 0h4M20 4l-5 5m-5 9v4m0 0H7M12 20l-5-5m12 5l-5-5m5 5h-4m4 0v-4M20 20l-5-5"></path></svg>
+            <svg id="fullscreen-icon-close" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <span id="fullscreen-text">전체 화면</span>
+        </button>
+      </div>
+    </div>
+    
+    <div id="wordcloud-container" class="flex justify-center items-center text-gray-500">
+        여기에 워드클라우드가 나타납니다.
+    </div>
+  </div>
+
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-cloud@1.2.5/build/d3.layout.cloud.min.js"></script>
+  <script>
+    let pollingInterval;
+    let lastDataString = '';
+    let currentFrequencyData = null; // 리사이즈 시 재사용할 현재 데이터 저장 변수
+
+    function startProcessing() {
+      if (pollingInterval) clearInterval(pollingInterval);
+      processSheet();
+      pollingInterval = setInterval(processSheet, 5000); 
+    }
+    
+    function processSheet() {
+      const sheetUrl = document.getElementById('sheetUrl').value;
+      if (!sheetUrl) return;
+
+      if (!lastDataString) {
+        const connectButton = document.getElementById('connectButton');
+        const resultDiv = document.getElementById('result');
+        connectButton.disabled = true;
+        connectButton.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>데이터 처리 중...';
+        resultDiv.innerHTML = '<p class="text-center text-blue-500 mt-2">데이터를 처리 중입니다. 잠시만 기다려주세요...</p>';
+      }
+      
+      google.script.run
+        .withSuccessHandler(showResults)
+        .withFailureHandler(showError)
+        .processSheetData(sheetUrl);
+    }
+
+    function showResults(data) {
+      if (data.error) {
+        showError(data.error);
+        return;
+      }
+      
+      const newDataString = JSON.stringify(data.frequencyData);
+
+      if (newDataString !== lastDataString) {
+        console.log("새로운 데이터를 감지하여 워드클라우드를 업데이트합니다.");
+        lastDataString = newDataString;
+        currentFrequencyData = data.frequencyData; // 현재 데이터를 변수에 저장
+
+        document.getElementById('wordcloud-title').textContent = data.title;
+        createOrUpdateWordCloud(currentFrequencyData);
+
+        const connectButton = document.getElementById('connectButton');
+        if (connectButton.disabled) {
+            const resultDiv = document.getElementById('result');
+            connectButton.disabled = false;
+            connectButton.innerHTML = '시트 연결 및 데이터 처리';
+            resultDiv.innerHTML = `
+              <div class="p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center">
+                <p class="font-bold">✅ 데이터 연결 성공!</p>
+                <p>이제 5초마다 자동으로 데이터 변경을 감지합니다.</p>
+              </div>
+            `;
+            document.getElementById('wordcloud-section').scrollIntoView({ behavior: 'smooth' });
+        }
+      } else {
+        console.log("데이터 변경 없음. (5초마다 확인 중)");
+      }
+    }
+
+    function showError(error) {
+      if (pollingInterval) clearInterval(pollingInterval);
+      
+      const connectButton = document.getElementById('connectButton');
+      connectButton.disabled = false;
+      connectButton.innerHTML = '시트 연결 및 데이터 처리';
+      
+      const errorMessage = typeof error === 'string' ? error : error.message || '알 수 없는 오류가 발생했습니다.';
+      document.getElementById('result').innerHTML = `
+        <div class="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+          <p class="font-bold">❌ 오류 발생:</p>
+          <p>${errorMessage}</p>
+        </div>
+      `;
+      console.error("Apps Script 오류:", errorMessage);
+    }
+
+    function createOrUpdateWordCloud(data) {
+      if (!data) return;
+
+      const container = d3.select("#wordcloud-container");
+      
+      const margin = { top: 10, right: 10, bottom: 10, left: 10 };
+      // 현재 컨테이너의 실제 너비를 기준으로 계산
+      const width = document.getElementById('wordcloud-container').clientWidth - margin.left - margin.right;
+      // 👇 브라우저 창 높이의 95%를 차지하도록 수정
+      const height = window.innerHeight * 0.95 - margin.top - margin.bottom;
+      const maxFrequency = d3.max(data, d => d.frequency) || 1;
+      const minFrequency = d3.min(data, d => d.frequency) || 1;
+      // 폰트 크기 범위 수정
+      const fontSizeScale = d3.scaleLinear()
+        .domain([minFrequency, maxFrequency])
+        .range([30, 150]); 
+
+      const colorScale = d3.scaleOrdinal(d3.schemeSet3);
+      
+      let svg = container.select("svg");
+      let g;
+      if (svg.empty()) {
+        container.html('');
+        svg = container.append("svg");
+        g = svg.append("g");
+      } else {
+        g = svg.select("g");
+      }
+
+      // SVG와 그룹(g)의 크기 및 위치 업데이트
+      svg.attr("width", width + margin.left + margin.right)
+         .attr("height", height + margin.top + margin.bottom);
+      g.attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+
+
+      const layout = d3.layout.cloud()
+        .size([width, height])
+        .words(data.map(d => ({ text: d.item, size: fontSizeScale(d.frequency) })))
+        .padding(5)
+        .rotate(() => Math.floor(Math.random() * 6) * 20 - 60)
+        .font("Impact")
+        .fontSize(d => d.size)
+        .on("end", draw);
+
+      layout.start();
+
+      function draw(words) {
+        const text = g.selectAll("text").data(words, d => d.text);
+
+        text.enter().append("text")
+          .style("font-family", "Impact")
+          // .style("fill", (d, i) => colorScale(d.text))
+          .style("fill", (d, i) => colorScale(i))
+          .attr("text-anchor", "middle")
+          .text(d => d.text)
+          .style("font-size", "1px")
+          .merge(text) // Enter와 Update 선택을 병합하여 애니메이션을 한 번에 처리
+          .transition()
+          .duration(1000)
+          .style("font-size", d => d.size + "px")
+          .attr("transform", d => `translate(${d.x},${d.y})rotate(${d.rotate})`);
+          
+        text.exit()
+          .transition()
+          .duration(1000)
+          .style("font-size", "1px")
+          .style("fill-opacity", 1e-6)
+          .remove();
+      }
+    }
+
+    function toggleFullScreen() {
+      const section = document.getElementById('wordcloud-section');
+      if (!document.fullscreenElement) {
+        section.requestFullscreen().catch(err => {
+            alert(`전체 화면 모드를 시작할 수 없습니다: ${err.message} (${err.name})`);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    // 전체 화면 상태 변경 감지 이벤트 리스너 추가
+    document.addEventListener('fullscreenchange', () => {
+      const textEl = document.getElementById('fullscreen-text');
+      const openIcon = document.getElementById('fullscreen-icon-open');
+      const closeIcon = document.getElementById('fullscreen-icon-close');
+
+      if (document.fullscreenElement) {
+        console.log("전체 화면 모드 진입. 워드클라우드를 다시 그립니다.");
+        textEl.textContent = "화면 종료";
+        openIcon.classList.add('hidden');
+        closeIcon.classList.remove('hidden');
+      } else {
+        console.log("전체 화면 모드 해제. 워드클라우드를 다시 그립니다.");
+        textEl.textContent = "전체 화면";
+        openIcon.classList.remove('hidden');
+        closeIcon.classList.add('hidden');
+      }
+
+      // 화면 크기 변경이 DOM에 반영될 시간을 잠시 기다린 후 다시 그림
+      setTimeout(() => {
+        if (currentFrequencyData) {
+          createOrUpdateWordCloud(currentFrequencyData);
+        }
+      }, 150);
+    });
+  </script>
+
+</body>
+</html>
