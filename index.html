@@ -76,11 +76,12 @@
     let pollingInterval;
     let lastDataString = '';
     let currentFrequencyData = null; // 리사이즈 시 재사용할 현재 데이터 저장 변수
+    let refreshRate = 5; // 새로고침 주기(초)
 
     function startProcessing() {
       if (pollingInterval) clearInterval(pollingInterval);
       processSheet();
-      pollingInterval = setInterval(processSheet, 5000); 
+      pollingInterval = setInterval(processSheet, refreshRate * 1000); 
     }
     
     function processSheet() {
