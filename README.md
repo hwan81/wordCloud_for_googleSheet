@@ -1,7 +1,8 @@
-알겠습니다. 마크다운 기호를 포함하되, 순수 텍스트로만 작성해 드립니다.
-
 ☁️ Google Sheets 워드클라우드 생성기 (D3.js + d3-cloud)
-Google Sheets의 특정 열(Column)에 있는 텍스트 데이터를 실시간으로 분석하여 인터랙티브한 워드클라우드(Word Cloud)로 시각화하는 프로젝트입니다. 별도의 서버 구성 없이 Google Apps Script와 D3.js 라이브러리만을 사용하여 빠르고 쉽게 배포하고 사용할 수 있습니다.
+Google Sheets의 첫번째 시트의 B1셀을 제목으로, B2이하를 내용으로 하는 워드 클라우드를 생성합니다.
+
+구글시트 문서는 반드시 익명사용자의 뷰어 권한이 있어야합니다.
+
 
 ✨ 주요 기능
 Google Sheets 연동: Google Apps Script를 사용하여 Google Sheets의 데이터를 읽고, 텍스트 빈도를 분석합니다.
